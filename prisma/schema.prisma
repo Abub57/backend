@@ -45,6 +45,10 @@ model Creator {
   freezes   AccountFreeze[]
   payments  Payment[]
   payouts   Payout[]
+
+  subscription CreatorSubscription?
+  usage        CreatorUsage[]
+  invoices     CreatorInvoice[]
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -345,4 +349,115 @@ model Payout {
   // Retry worker: failed payouts ordered by next retry time.
   @@index([status, nextRetryAt], map: "idx_payout_status_nextRetryAt")
   @@index([transactionHash])
+}
+
+// ─── Creator subscription tiers (issue #69) ─────────────────────────────────
+
+enum CreatorTierLevel {
+  free
+  pro
+  enterprise
+}
+
+enum CreatorSubscriptionStatus {
+  trialing
+  active
+  past_due
+  canceled
+  expired
+}
+
+enum CreatorInvoiceStatus {
+  open
+  paid
+  void
+  uncollectible
+}
+
+model CreatorSubscription {
+  id     String @id @default(cuid())
+  creatorId String @unique
+  creator Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  tier   CreatorTierLevel          @default(free)
+  status CreatorSubscriptionStatus @default(active)
+  // Billing cadence; kept as text so a yearly plan can be added without a migration.
+  billingPeriod String @default("monthly")
+
+  trialEndsAt         DateTime?
+  currentPeriodStart  DateTime  @default(now())
+  currentPeriodEnd    DateTime
+  cancelAtPeriodEnd   Boolean   @default(false)
+  canceledAt          DateTime?
+  // Tier that takes effect at the end of the paid period (scheduled downgrade).
+  nextTier            CreatorTierLevel?
+
+  // Payment provider seam: "internal" issues invoices for the platform's
+  // existing payment flow to settle; a PSP adapter replaces it per deployment.
+  provider               String  @default("internal")
+  providerCustomerId     String?
+  providerSubscriptionId String?
+
+  invoices CreatorInvoice[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tier, status])
+  // Renewal / expiry sweeps scan by period end for a known set of statuses.
+  @@index([status, currentPeriodEnd])
+}
+
+model CreatorUsage {
+  id        String  @id @default(cuid())
+  creatorId String
+  creator   Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  // "YYYY-MM": one row per creator per month instead of one write per request.
+  period      String
+  periodStart DateTime
+
+  apiRequests      Int @default(0)
+  analyticsQueries Int @default(0)
+  exports          Int @default(0)
+  tipCount         Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([creatorId, period])
+  @@index([period])
+}
+
+model CreatorInvoice {
+  id        String  @id @default(cuid())
+  creatorId String
+  creator   Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  subscriptionId String?
+  subscription   CreatorSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  number  String                @unique
+  status  CreatorInvoiceStatus  @default(open)
+  tier    CreatorTierLevel
+  billingPeriod String          @default("monthly")
+
+  amountCents Int
+  currency    String @default("usd")
+  lineItems   Json
+
+  periodStart DateTime
+  periodEnd   DateTime
+  issuedAt    DateTime  @default(now())
+  dueAt       DateTime?
+  paidAt      DateTime?
+
+  provider          String  @default("internal")
+  providerInvoiceId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([creatorId, issuedAt(sort: Desc)])
+  @@index([status])
 }
