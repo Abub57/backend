@@ -17,6 +17,7 @@ import { registerPaymentRoutes } from './domains/payments/payment.routes';
 import { registerChargeRoutes } from './domains/payments/charge.routes';
 import { registerUserRoutes } from './domains/users/user.routes';
 import { registerCreatorPayoutRoutes } from './domains/creators/payout.routes';
+import { registerTeamRoutes } from './domains/teams/team.routes';
 import { registerWebhookRoutes } from './domains/webhooks/webhook.routes';
 import { registerAnalyticsRoutes } from './domains/analytics/analytics.routes';
 import { registerAdminRoutes } from './domains/admin/admin.routes';
@@ -239,6 +240,7 @@ const bootstrap = async (): Promise<void> => {
   registerPaymentRoutes(app, prisma);
   registerUserRoutes(app, prisma);
   registerCreatorPayoutRoutes(app, prisma);
+  registerTeamRoutes(app, prisma);
   registerWebhookRoutes(app, prisma);
   registerAnalyticsRoutes(app, prisma);
   registerAdminRoutes(app, prisma);
