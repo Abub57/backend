@@ -40,11 +40,13 @@ model Creator {
   totalEarnings  Float @default(0)
   pendingBalance Float @default(0)
   
-  tips      Tip[]    @relation("CreatorTips")
-  webhooks  Webhook[]
-  freezes   AccountFreeze[]
-  payments  Payment[]
-  payouts   Payout[]
+  tips            Tip[]               @relation("CreatorTips")
+  webhooks        Webhook[]
+  freezes         AccountFreeze[]
+  payments        Payment[]
+  payouts         Payout[]
+  // Teams this creator belongs to (#66).
+  teamMemberships CreatorTeamMember[] @relation("CreatorTeamMembers")
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -345,4 +347,245 @@ model Payout {
   // Retry worker: failed payouts ordered by next retry time.
   @@index([status, nextRetryAt], map: "idx_payout_status_nextRetryAt")
   @@index([transactionHash])
+}
+
+// ---------------------------------------------------------------------------
+// Team / organization support (#66)
+//
+// A team groups creator accounts under a single organization: one verification,
+// one payout account, per-member revenue splits, contribution tracking and an
+// append-only audit trail of every membership change.
+// ---------------------------------------------------------------------------
+
+enum TeamRole {
+  owner
+  admin
+  member
+}
+
+enum TeamMemberStatus {
+  active
+  removed
+}
+
+enum TeamPayoutMode {
+  team
+  split
+}
+
+enum TeamPayoutStatus {
+  pending
+  processing
+  completed
+  failed
+}
+
+model CreatorTeam {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  description String?
+  avatar      String?
+
+  // One verification covers every member of the team.
+  verified         Boolean   @default(false)
+  verifiedAt       DateTime?
+  verificationNote String?
+
+  isPublic Boolean @default(true)
+
+  // Team payout account: a single destination wallet for collective revenue.
+  payoutWalletAddress  String?
+  payoutWalletVerified Boolean        @default(false)
+  payoutMode           TeamPayoutMode @default(team)
+  pendingBalance       Float          @default(0)
+  reservedBalance      Float          @default(0)
+  totalEarnings        Float          @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members       CreatorTeamMember[]
+  splits        TeamRevenueSplit[]
+  contributions TeamContribution[]
+  distributions TeamRevenueDistribution[]
+  payouts       TeamPayout[]
+  auditLogs     TeamAuditLog[]
+
+  // Discovery feed: visibility filter, verified teams first, newest first.
+  @@index([isPublic, verified, createdAt(sort: Desc), id(sort: Desc)], map: "idx_creatorTeam_public_verified_createdAt")
+  // Collective leaderboard ordering.
+  @@index([totalEarnings(sort: Desc)], map: "idx_creatorTeam_totalEarnings")
+}
+
+// Membership of a creator inside a team, with their role and contribution
+// counters (kept denormalised so the team dashboard is a single round of reads).
+model CreatorTeamMember {
+  id String @id @default(cuid())
+
+  teamId String
+  team   CreatorTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  creatorId String
+  creator   Creator @relation("CreatorTeamMembers", fields: [creatorId], references: [id], onDelete: Cascade)
+
+  role   TeamRole         @default(member)
+  status TeamMemberStatus @default(active)
+
+  contributionCount  Int   @default(0)
+  contributionAmount Float @default(0)
+
+  joinedAt    DateTime  @default(now())
+  invitedById String?
+  removedAt   DateTime?
+  removedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  splits        TeamRevenueSplit[]
+  contributions TeamContribution[]
+  distributions TeamRevenueShare[]
+  payouts       TeamPayout[]
+
+  @@unique([teamId, creatorId], map: "uniq_creatorTeamMember_team_creator")
+  // Member rosters and "my teams" lookups both filter on the status.
+  @@index([teamId, status], map: "idx_creatorTeamMember_team_status")
+  @@index([creatorId, status], map: "idx_creatorTeamMember_creator_status")
+}
+
+// Configured revenue share for one member, in basis points (1 bps = 0.01%).
+model TeamRevenueSplit {
+  id String @id @default(cuid())
+
+  teamId String
+  team   CreatorTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  memberId String
+  member   CreatorTeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  shareBps    Int
+  enabled     Boolean @default(true)
+  updatedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teamId, memberId], map: "uniq_teamRevenueSplit_team_member")
+  @@index([teamId, enabled], map: "idx_teamRevenueSplit_team_enabled")
+}
+
+// A single contribution recorded by a team member (work, content, community...).
+model TeamContribution {
+  id String @id @default(cuid())
+
+  teamId String
+  team   CreatorTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  memberId String
+  member   CreatorTeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  type        String // development | design | content | marketing | community | operations | manual
+  description String?
+  amount      Float  @default(0)
+  weight      Int    @default(1)
+  reference   String?
+
+  occurredAt   DateTime @default(now())
+  recordedById String?
+  createdAt    DateTime @default(now())
+
+  @@index([teamId, occurredAt(sort: Desc)], map: "idx_teamContribution_team_occurredAt")
+  @@index([teamId, type], map: "idx_teamContribution_team_type")
+  @@index([memberId, occurredAt(sort: Desc)], map: "idx_teamContribution_member_occurredAt")
+}
+
+// One revenue distribution event (tips, sponsorship, manual) and the shares it
+// produced. Distributions are immutable: a correction is a new distribution.
+model TeamRevenueDistribution {
+  id String @id @default(cuid())
+
+  teamId String
+  team   CreatorTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  amount    Float
+  currency  String  @default("XLM")
+  source    String  @default("manual")
+  reference String?
+  note      String?
+
+  distributedById String?
+  createdAt       DateTime @default(now())
+
+  shares TeamRevenueShare[]
+
+  @@index([teamId, createdAt(sort: Desc)], map: "idx_teamRevenueDistribution_team_createdAt")
+  @@index([source], map: "idx_teamRevenueDistribution_source")
+}
+
+// A member's slice of one distribution (amount already split and rounded).
+model TeamRevenueShare {
+  id String @id @default(cuid())
+
+  distributionId String
+  distribution   TeamRevenueDistribution @relation(fields: [distributionId], references: [id], onDelete: Cascade)
+
+  memberId String
+  member   CreatorTeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  shareBps Int
+  amount   Float
+  // True when the member's own balance was credited (split payout mode).
+  credited Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([distributionId], map: "idx_teamRevenueShare_distribution")
+  @@index([memberId, createdAt(sort: Desc)], map: "idx_teamRevenueShare_member_createdAt")
+}
+
+// A payout requested against the team's collective balance. The amount moves
+// from pendingBalance to reservedBalance while the payout is in flight.
+model TeamPayout {
+  id String @id @default(cuid())
+
+  teamId String
+  team   CreatorTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  amount          Float
+  status          TeamPayoutStatus @default(pending)
+  walletAddress   String
+  transactionHash String?          @unique
+  errorMessage    String?
+
+  requestedById String?
+  requestedBy   CreatorTeamMember? @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+
+  processedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([teamId, status], map: "idx_teamPayout_team_status")
+  @@index([teamId, createdAt(sort: Desc)], map: "idx_teamPayout_team_createdAt")
+  @@index([status, createdAt], map: "idx_teamPayout_status_createdAt")
+}
+
+// Append-only audit trail: every team and membership change is logged here.
+model TeamAuditLog {
+  id String @id @default(cuid())
+
+  teamId String
+  team   CreatorTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  action         String // team.created, member.added, member.role_changed, revenue.distributed, ...
+  actorId        String?
+  actorUserId    String?
+  targetMemberId String?
+  targetCreatorId String?
+  metadata       Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([teamId, createdAt(sort: Desc)], map: "idx_teamAuditLog_team_createdAt")
+  @@index([teamId, action], map: "idx_teamAuditLog_team_action")
 }
