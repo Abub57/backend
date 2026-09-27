@@ -86,10 +86,8 @@ registerPaymentRoutes(app, prisma);
 registerUserRoutes(app, prisma);
 registerCreatorPayoutRoutes(app, prisma);
 registerWebhookRoutes(app, prisma);
-// Creator tier runtime (#69) is built first so the analytics routes can reuse
-// the same resolver, limiter and usage counters as the subscription endpoints.
-const creatorTiers = registerCreatorTierRoutes(app, prisma);
-registerAnalyticsRoutes(app, prisma, creatorTiers);
+registerAnalyticsRoutes(app, prisma);
+registerNotificationRoutes(app, prisma);
 registerAdminRoutes(app, prisma);
 registerRoleRoutes(app, prisma);
 registerMetricsRoute(app, prisma);
