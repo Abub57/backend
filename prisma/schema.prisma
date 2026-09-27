@@ -20,33 +20,66 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  creator         Creator?
-  wallets         Wallet[]
-  tips            Tip[]
-  payments        Payment[]
-  profileChanges  ProfileChange[]
+  creator   Creator?
+  wallets   Wallet[]
+  tips      Tip[]
+  payments  Payment[]
+  userRoles UserRole[]
 }
 
-// Append-only audit trail for user profile mutations. One row per changed
-// field, so the full history of an account can be reconstructed (and
-// security-sensitive changes filtered) without mutating past records.
-model ProfileChange {
-  id        String @id @default(cuid())
-  userId    String
-  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+model Role {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  description String?
+  hierarchy   Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  permissions RolePermission[]
+  users       UserRole[]
+  changes     RoleChange[]
+}
 
-  field     String
-  oldValue  String?
-  newValue  String?
-  // Password/email/avatar changes are flagged so they can be audited separately.
-  sensitive Boolean @default(false)
-  ip        String?
-  userAgent String?
+model Permission {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  description String?
+  resource    String
+  action      String
+  roles       RolePermission[]
+  createdAt   DateTime         @default(now())
+}
 
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  userId     String
+  roleId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+  assignedBy String?
+  @@id([userId, roleId])
+  @@index([roleId])
+}
+
+model RoleChange {
+  id        String   @id @default(cuid())
+  roleId    String?
+  role      Role?    @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  actorId   String
+  targetId  String?
+  action    String
+  details   Json?
   createdAt DateTime @default(now())
-
-  @@index([userId, createdAt(sort: Desc)], map: "idx_profileChange_user_createdAt")
-  @@index([userId, sensitive, createdAt(sort: Desc)], map: "idx_profileChange_user_sensitive_createdAt")
+  @@index([actorId, createdAt])
+  @@index([targetId, createdAt])
 }
 
 model Creator {
@@ -267,6 +300,25 @@ model PaymentEvent {
 
   @@index([paymentId])
   @@index([type])
+}
+
+// Append-only compliance trail. Application code never exposes update/delete
+// operations for this model; retention is performed by a dedicated sweep.
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  resource   String
+  resourceId String?
+  changes    Json     @default("{}")
+  timestamp  DateTime @default(now())
+  ipAddress  String?
+  requestId  String?
+
+  @@index([resource, resourceId, timestamp])
+  @@index([userId, timestamp])
+  @@index([action, timestamp])
+  @@index([timestamp])
 }
 
 model Refund {
