@@ -12,16 +12,41 @@ model User {
   email     String   @unique
   password  String
   name      String?
+  bio       String?
+  avatar    String?
   role      String   @default("fan")
   verified  Boolean  @default(false)
   notificationPreferences Json @default("{}")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  creator   Creator?
-  wallets   Wallet[]
-  tips      Tip[]
-  payments  Payment[]
+  creator         Creator?
+  wallets         Wallet[]
+  tips            Tip[]
+  payments        Payment[]
+  profileChanges  ProfileChange[]
+}
+
+// Append-only audit trail for user profile mutations. One row per changed
+// field, so the full history of an account can be reconstructed (and
+// security-sensitive changes filtered) without mutating past records.
+model ProfileChange {
+  id        String @id @default(cuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  field     String
+  oldValue  String?
+  newValue  String?
+  // Password/email/avatar changes are flagged so they can be audited separately.
+  sensitive Boolean @default(false)
+  ip        String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)], map: "idx_profileChange_user_createdAt")
+  @@index([userId, sensitive, createdAt(sort: Desc)], map: "idx_profileChange_user_sensitive_createdAt")
 }
 
 model Creator {
