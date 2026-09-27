@@ -22,6 +22,10 @@ model User {
   wallets   Wallet[]
   tips      Tip[]
   payments  Payment[]
+
+  notifications           Notification[]
+  notificationChannels    NotificationPreference[]
+  notificationDigest      NotificationDigestSetting?
 }
 
 model Creator {
@@ -345,4 +349,96 @@ model Payout {
   // Retry worker: failed payouts ordered by next retry time.
   @@index([status, nextRetryAt], map: "idx_payout_status_nextRetryAt")
   @@index([transactionHash])
+}
+
+// ─── Notification center (issue #58) ────────────────────────────────────────
+
+enum NotificationChannel {
+  in_app
+  email
+  push
+}
+
+enum NotificationStatus {
+  queued
+  sent
+  skipped
+  failed
+}
+
+enum NotificationDigestFrequency {
+  off
+  daily
+  weekly
+}
+
+/// One row per delivered (or attempted) notification, for the notification
+/// center. `type` is the event type (`tip.received`, `payout.completed`, ...)
+/// and `data` carries the template variables.
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type    String
+  channel NotificationChannel
+  status  NotificationStatus  @default(queued)
+
+  title String
+  body  String
+  data  Json   @default("{}")
+
+  readAt        DateTime?
+  sentAt        DateTime?
+  failedAt      DateTime?
+  failureReason String?
+  /// Set from the event type's retention window; expired rows are pruned.
+  expiresAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Notification center: one user's feed, newest first.
+  @@index([userId, createdAt(sort: Desc)])
+  // Unread badge and mark-all-read.
+  @@index([userId, channel, readAt])
+  // Retention sweep.
+  @@index([expiresAt])
+}
+
+/// Per user, per event type, per channel opt-in. A missing row means "use the
+/// default for that type" (see notification.types.ts), which keeps this table
+/// proportional to the overrides a user actually made.
+model NotificationPreference {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  eventType String
+  channel   NotificationChannel
+  enabled   Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, eventType, channel])
+  @@index([userId, eventType])
+}
+
+/// Digest configuration: at most one row per user.
+model NotificationDigestSetting {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  frequency NotificationDigestFrequency @default(off)
+  channel   NotificationChannel         @default(email)
+  /// Hour of the day (UTC) the digest is sent at.
+  hourUtc   Int @default(8)
+
+  lastSentAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([frequency])
 }

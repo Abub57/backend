@@ -85,6 +85,7 @@ registerUserRoutes(app, prisma);
 registerCreatorPayoutRoutes(app, prisma);
 registerWebhookRoutes(app, prisma);
 registerAnalyticsRoutes(app, prisma);
+registerNotificationRoutes(app, prisma);
 registerAdminRoutes(app, prisma);
 registerMetricsRoute(app, prisma);
 
