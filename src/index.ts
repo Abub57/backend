@@ -17,10 +17,11 @@ import { registerPaymentRoutes } from './domains/payments/payment.routes';
 import { registerChargeRoutes } from './domains/payments/charge.routes';
 import { registerUserRoutes } from './domains/users/user.routes';
 import { registerCreatorPayoutRoutes } from './domains/creators/payout.routes';
+import { registerTeamRoutes } from './domains/teams/team.routes';
 import { registerWebhookRoutes } from './domains/webhooks/webhook.routes';
 import { registerAnalyticsRoutes } from './domains/analytics/analytics.routes';
 import { registerAdminRoutes } from './domains/admin/admin.routes';
-import { registerCreatorTierRoutes } from './domains/creators/tier.routes';
+import { registerRoleRoutes } from './domains/roles/role.routes';
 import { registerNotificationRoutes } from './domains/notifications/notification.routes';
 import { registerMetricsRoute } from './routes/metrics.routes';
 import { closeQueues } from './lib/queue';
@@ -90,6 +91,7 @@ registerWebhookRoutes(app, prisma);
 const creatorTiers = registerCreatorTierRoutes(app, prisma);
 registerAnalyticsRoutes(app, prisma, creatorTiers);
 registerAdminRoutes(app, prisma);
+registerRoleRoutes(app, prisma);
 registerMetricsRoute(app, prisma);
 
 // Health check endpoint
@@ -243,9 +245,11 @@ const bootstrap = async (): Promise<void> => {
   registerPaymentRoutes(app, prisma);
   registerUserRoutes(app, prisma);
   registerCreatorPayoutRoutes(app, prisma);
+  registerTeamRoutes(app, prisma);
   registerWebhookRoutes(app, prisma);
   registerAnalyticsRoutes(app, prisma);
   registerAdminRoutes(app, prisma);
+  registerRoleRoutes(app, prisma);
   registerMetricsRoute(app, prisma);
   registerQueryPerformanceRoutes(app);
   registerJobRoutes(app);
@@ -316,4 +320,3 @@ const startBackgroundWorkers = async (): Promise<void> => {
 void startBackgroundWorkers();
 
 start();
-
