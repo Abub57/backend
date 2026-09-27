@@ -22,6 +22,62 @@ model User {
   wallets   Wallet[]
   tips      Tip[]
   payments  Payment[]
+  userRoles UserRole[]
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  description String?
+  hierarchy   Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  permissions RolePermission[]
+  users       UserRole[]
+  changes     RoleChange[]
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  description String?
+  resource    String
+  action      String
+  roles       RolePermission[]
+  createdAt   DateTime         @default(now())
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  userId     String
+  roleId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+  assignedBy String?
+  @@id([userId, roleId])
+  @@index([roleId])
+}
+
+model RoleChange {
+  id        String   @id @default(cuid())
+  roleId    String?
+  role      Role?    @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  actorId   String
+  targetId  String?
+  action    String
+  details   Json?
+  createdAt DateTime @default(now())
+  @@index([actorId, createdAt])
+  @@index([targetId, createdAt])
 }
 
 model Creator {
