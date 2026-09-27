@@ -86,7 +86,10 @@ registerPaymentRoutes(app, prisma);
 registerUserRoutes(app, prisma);
 registerCreatorPayoutRoutes(app, prisma);
 registerWebhookRoutes(app, prisma);
-registerAnalyticsRoutes(app, prisma);
+// Creator tier runtime (#69) is built first so the analytics routes can reuse
+// the same resolver, limiter and usage counters as the subscription endpoints.
+const creatorTiers = registerCreatorTierRoutes(app, prisma);
+registerAnalyticsRoutes(app, prisma, creatorTiers);
 registerAdminRoutes(app, prisma);
 registerRoleRoutes(app, prisma);
 registerMetricsRoute(app, prisma);
@@ -199,6 +202,8 @@ const shutdown = async (signal: 'SIGTERM' | 'SIGINT'): Promise<void> => {
     // the forceExitTimer above is the outer safety net for this whole
     // sequence, including this step).
     await app.close();
+    // Flush buffered creator usage counters before the database goes away.
+    await creatorTiers.close();
     await emailNotificationWorker.close();
     await closeQueues();
     await closeDatabase();
