@@ -244,6 +244,25 @@ model PaymentEvent {
   @@index([type])
 }
 
+// Append-only compliance trail. Application code never exposes update/delete
+// operations for this model; retention is performed by a dedicated sweep.
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  resource   String
+  resourceId String?
+  changes    Json     @default("{}")
+  timestamp  DateTime @default(now())
+  ipAddress  String?
+  requestId  String?
+
+  @@index([resource, resourceId, timestamp])
+  @@index([userId, timestamp])
+  @@index([action, timestamp])
+  @@index([timestamp])
+}
+
 model Refund {
   id             String  @id @default(cuid())
   paymentId      String
