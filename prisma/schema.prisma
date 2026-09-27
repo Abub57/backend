@@ -165,6 +165,14 @@ model Tip {
   @@index([status, createdAt], map: "idx_tip_status_createdAt")
   // "Top supporters" aggregation: filter then group by supporter without a sort step.
   @@index([creatorId, status, fromUserId], map: "idx_tip_creator_status_fromUser")
+  // Filtering / search (#56): one index per filter shape added to the listing
+  // and admin-search endpoints. See migration 20260927130000_tip_filter_indexes.
+  @@index([creatorId, amount], map: "idx_tip_creator_amount")
+  @@index([creatorId, createdAt], map: "idx_tip_creator_createdAt_range")
+  @@index([createdAt], map: "idx_tip_createdAt")
+  @@index([amount], map: "idx_tip_amount")
+  @@index([status, amount], map: "idx_tip_status_amount")
+  @@index([fromUserId, amount], map: "idx_tip_fromUser_amount")
 }
 
 model BlacklistedToken {
