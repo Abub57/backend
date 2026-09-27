@@ -12,6 +12,8 @@ model User {
   email     String   @unique
   password  String
   name      String?
+  bio       String?
+  avatar    String?
   role      String   @default("fan")
   verified  Boolean  @default(false)
   notificationPreferences Json @default("{}")
