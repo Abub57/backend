@@ -1,10 +1,9 @@
 name: Backend CI
 
+# TEMPORARILY DISABLED DURING WAVE CONTRIBUTION PERIOD
+# To re-enable: restore the original on trigger below
 on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main, develop]
+  workflow_dispatch: # Manual trigger only
 
 jobs:
   typecheck:
