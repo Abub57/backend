@@ -71,6 +71,7 @@ export const optionalAuthMiddleware = async (
         return;
       }
       request.user = payload;
+      setRequestContextUserId(payload.userId);
     }
   } catch {
     // Silently ignore if token is invalid for optional auth
