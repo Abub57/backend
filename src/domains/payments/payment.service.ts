@@ -26,6 +26,7 @@ import { sanitizePageSize, sanitizePageNumber, parseSortParameters } from '../..
 import { paginateWithCursor } from '../../db/pagination';
 import { WebhookService } from '../webhooks/webhook.service';
 import { buildTipMemo, validateMemo, validatePaymentAmount } from '../../lib/stellar/validation';
+import { checkMinimumTipAmount, type TipCurrency } from '../../config/payment-limits';
 import { config } from '../../config/env';
 import { MAX_MEDIA_PER_TIP, type MediaView } from '../media/media.types';
 import { buildCdnUrl } from '../media/media.storage';
@@ -121,6 +122,18 @@ export class PaymentService extends BaseService {
       const amountCheck = validatePaymentAmount(data.amount);
       if (!amountCheck.valid) {
         throw new ValidationError(amountCheck.reason || 'Amount must be greater than 0');
+      }
+
+      // #218 — Reject 0-value/dust tips below the per-currency minimum. Repeats
+      // the schema-level check so a caller that bypasses the route layer cannot
+      // create a sub-minimum tip either. The minimum and currency are included
+      // in the error so the caller knows exactly how much more is required.
+      const minimumCheck = checkMinimumTipAmount(data.amount, data.currency as TipCurrency | undefined);
+      if (!minimumCheck.valid) {
+        throw new ValidationError(
+          `Amount must be at least ${minimumCheck.minimum} ${minimumCheck.currency} (minimum tip amount)`,
+          { minimumAmount: minimumCheck.minimum, currency: minimumCheck.currency }
+        );
       }
 
       // Verify creator exists, is public, and is verified
