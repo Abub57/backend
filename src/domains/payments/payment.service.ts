@@ -16,11 +16,9 @@ import {
   InvalidCurrencyError,
   PaymentDeclinedError,
   PaymentNotFoundError,
-  PaymentRequiredError,
   ServiceUnavailableError,
 } from '../../utils/errors';
 import { buildPaymentTransaction, submitSignedTransaction } from '../../lib/stellar/transactions';
-import { getWalletBalance } from '../../lib/stellar/wallet';
 import { logger } from '../../utils/logger';
 import { sanitizePageSize, sanitizePageNumber, parseSortParameters } from '../../utils/pagination';
 import { paginateWithCursor } from '../../db/pagination';
@@ -115,7 +113,7 @@ export class PaymentService extends BaseService {
    * - Creator exists and is public and verified
    * - Sender has a verified wallet
    */
-  async createTip(userId: string, data: CreateTipRequest): Promise<TipResponse> {
+  async createTip(userId: string, data: CreateTipRequest): Promise<TipResponse & { jobId?: string }> {
     return this.executeWithLogging('payment.createTip', async () => {
       // Validate amount at the service boundary as well, so callers that bypass
       // the route layer (jobs, internal tooling) cannot create bad records.
@@ -240,40 +238,17 @@ export class PaymentService extends BaseService {
         }
       }
 
-      // #175 — Check on-chain balance before creating any DB record
+      // #221 — Tip creation is asynchronous: the on-chain balance check (a
+      // Stellar Horizon RPC call that can be slow or time out under network
+      // congestion) is no longer made on this request path. The tip is
+      // created immediately in PENDING state below, and a queued job
+      // (`balanceVerificationQueue`, handled by
+      // `lib/workers/balance-verification.worker.ts`) verifies the balance
+      // afterwards, transitioning the tip to FAILED if funds are insufficient
+      // or the check cannot be completed. `assetCode` is still resolved here
+      // (not a network call) so it can be persisted on the tip and forwarded
+      // to the job.
       const assetCode = requestedAsset?.code ?? 'USDC';
-      let walletBalances: { lumens: string; usdc?: string };
-      try {
-        walletBalances = await getWalletBalance(wallet.publicKey);
-      } catch (err) {
-        logger.error(
-          { userId, walletPublicKey: wallet.publicKey, failureReason: 'balance_check_failed' },
-          'Tip blocked: failed to fetch on-chain wallet balance'
-        );
-        throw new ServiceUnavailableError('Unable to verify wallet balance at this time');
-      }
-
-      const rawBalance =
-        assetCode === 'USDC' ? (walletBalances.usdc ?? '0') : walletBalances.lumens;
-      const currentBalance = parseFloat(rawBalance);
-      if (!Number.isFinite(currentBalance) || currentBalance < data.amount) {
-        logger.warn(
-          {
-            userId,
-            walletPublicKey: wallet.publicKey,
-            requiredAmount: data.amount,
-            currentBalance,
-            currency: assetCode,
-            failureReason: 'insufficient_balance',
-          },
-          'Tip blocked: insufficient on-chain balance'
-        );
-        throw new PaymentRequiredError('Insufficient funds to complete the payment', {
-          requiredAmount: data.amount,
-          currentBalance,
-          currency: assetCode,
-        });
-      }
 
       // Validate requested media (#64) before creating the tip: every id must be
       // media this user uploaded, finished scanning, and has not already attached.
@@ -348,7 +323,43 @@ export class PaymentService extends BaseService {
         logger.info(`Tip ${tip.id} attached ${attachableMedia.length} media item(s)`);
       }
 
-      return this.formatTipResponse(tip);
+      // #221 — Enqueue the balance verification job now that the tip exists.
+      // Imported lazily, same reasoning as `checkTransactionConfirmation`
+      // below: importing the queue module opens a Redis connection as a side
+      // effect, which unit tests that import the service must not trigger.
+      let jobId: string | undefined;
+      try {
+        const { balanceVerificationQueue } = await import('../../lib/queue');
+        const job = await balanceVerificationQueue.add(
+          'verify-balance',
+          withJobTracePayload(
+            {
+              tipId: tip.id,
+              walletPublicKey: wallet.publicKey,
+              assetCode,
+              requiredAmount: tip.amount,
+            },
+            { userId }
+          ),
+          {
+            attempts: 5,
+            backoff: { type: 'exponential', delay: 2000 },
+          }
+        );
+        jobId = String(job.id);
+      } catch (error) {
+        // The tip already exists and is authoritative; a failure to enqueue
+        // verification is logged, not surfaced, so a Redis hiccup never turns
+        // into a failed tip creation request (the exact failure mode #221
+        // exists to remove). The tip is left PENDING; an operational sweep or
+        // manual retry can re-enqueue verification for it later.
+        logger.error(
+          { tipId: tip.id, error },
+          'Failed to enqueue balance verification job; tip remains PENDING unverified'
+        );
+      }
+
+      return { ...this.formatTipResponse(tip), jobId };
     });
   }
 
