@@ -1,6 +1,8 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { AdminService, FlagWalletRequest, FreezeAccountRequest } from './admin.service';
+import { DisputeService, ResolveDisputeInput } from './dispute.service';
+import { PaymentStatus } from '../../lib/payments/types';
 import { formatSuccess, formatError } from '../../types/response';
 import { requireAdmin } from '../../middleware/rbac';
 import { AppError, UnauthorizedError } from '../../utils/errors';
@@ -9,6 +11,7 @@ import { CacheWarmer } from '../../lib/cache/cache-warming';
 
 export const registerAdminRoutes = (app: FastifyInstance, prisma: PrismaClient): void => {
   const adminService = new AdminService(prisma);
+  const disputeService = new DisputeService(prisma);
 
   app.post<{ Body: { creatorIds: string[] } }>(
     '/api/v1/admin/batches/creators/verify',
@@ -439,4 +442,187 @@ export const registerAdminRoutes = (app: FastifyInstance, prisma: PrismaClient):
       }
     }
   );
+
+  // Helper to register dispute routes on both /api/admin and /api/v1/admin
+  const registerDisputeRoutes = (prefix: string) => {
+    // POST :prefix/payments/:id/dispute - Mark payment as disputed
+    app.post<{ Params: { id: string }; Body: { reason: string; notes?: string } }>(
+      `${prefix}/payments/:id/dispute`,
+      {
+        preHandler: requireAdmin,
+        schema: {
+          params: {
+            type: 'object',
+            required: ['id'],
+            properties: { id: { type: 'string', description: 'Payment ID' } },
+          },
+          body: {
+            type: 'object',
+            required: ['reason'],
+            properties: {
+              reason: { type: 'string', description: 'Reason for dispute' },
+              notes: { type: 'string', description: 'Optional internal notes' },
+            },
+          },
+        },
+      },
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+          const user = request.user;
+          if (!user) throw new UnauthorizedError('User not found');
+
+          const { id } = request.params as { id: string };
+          const body = request.body as { reason: string; notes?: string };
+          const result = await disputeService.markDisputed(id, user.userId, body);
+          return reply.code(200).send(formatSuccess(result));
+        } catch (error) {
+          if (error instanceof UnauthorizedError) {
+            return reply.code(403).send(formatError(error.message, error.code));
+          } else if (error instanceof AppError) {
+            return reply.code(error.statusCode).send(formatError(error.message, error.code));
+          } else {
+            throw error;
+          }
+        }
+      }
+    );
+
+    // POST :prefix/payments/:id/resolve - Resolve payment dispute (approve, reject, refund)
+    app.post<{
+      Params: { id: string };
+      Body: {
+        action: 'approve' | 'reject' | 'refund';
+        reason: string;
+        notes?: string;
+        amount?: number;
+        targetStatus?: PaymentStatus;
+      };
+    }>(
+      `${prefix}/payments/:id/resolve`,
+      {
+        preHandler: requireAdmin,
+        schema: {
+          params: {
+            type: 'object',
+            required: ['id'],
+            properties: { id: { type: 'string', description: 'Payment ID' } },
+          },
+          body: {
+            type: 'object',
+            required: ['action', 'reason'],
+            properties: {
+              action: { type: 'string', enum: ['approve', 'reject', 'refund'] },
+              reason: { type: 'string', description: 'Resolution reason' },
+              notes: { type: 'string', description: 'Optional internal notes' },
+              amount: { type: 'number', description: 'Optional refund amount' },
+              targetStatus: { type: 'string', description: 'Optional explicit target status' },
+            },
+          },
+        },
+      },
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+          const user = request.user;
+          if (!user) throw new UnauthorizedError('User not found');
+
+          const { id } = request.params as { id: string };
+          const body = request.body as ResolveDisputeInput;
+          const result = await disputeService.resolveDispute(id, user.userId, body);
+          return reply.code(200).send(formatSuccess(result));
+        } catch (error) {
+          if (error instanceof UnauthorizedError) {
+            return reply.code(403).send(formatError(error.message, error.code));
+          } else if (error instanceof AppError) {
+            return reply.code(error.statusCode).send(formatError(error.message, error.code));
+          } else {
+            throw error;
+          }
+        }
+      }
+    );
+
+    // GET :prefix/payments - List payments with status filter (e.g. status='disputed')
+    app.get<{
+      Querystring: {
+        status?: string;
+        page?: string;
+        pageSize?: string;
+        limit?: string;
+        userId?: string;
+        creatorId?: string;
+      };
+    }>(
+      `${prefix}/payments`,
+      {
+        preHandler: requireAdmin,
+      },
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+          const user = request.user;
+          if (!user) throw new UnauthorizedError('User not found');
+
+          const query = request.query as {
+            status?: string;
+            page?: string;
+            pageSize?: string;
+            limit?: string;
+            userId?: string;
+            creatorId?: string;
+          };
+          const page = query?.page ? parseInt(query.page, 10) : 1;
+          const pageSize = query?.pageSize
+            ? parseInt(query.pageSize, 10)
+            : query?.limit
+              ? parseInt(query.limit, 10)
+              : 20;
+
+          const result = await disputeService.listPayments({
+            status: query?.status,
+            page,
+            pageSize,
+            userId: query?.userId,
+            creatorId: query?.creatorId,
+          });
+          return reply.send(formatSuccess(result));
+        } catch (error) {
+          if (error instanceof UnauthorizedError) {
+            return reply.code(403).send(formatError(error.message, error.code));
+          } else if (error instanceof AppError) {
+            return reply.code(error.statusCode).send(formatError(error.message, error.code));
+          } else {
+            throw error;
+          }
+        }
+      }
+    );
+
+    // GET :prefix/payments/:id - Get single payment detail
+    app.get<{ Params: { id: string } }>(
+      `${prefix}/payments/:id`,
+      {
+        preHandler: requireAdmin,
+      },
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+          const user = request.user;
+          if (!user) throw new UnauthorizedError('User not found');
+
+          const { id } = request.params as { id: string };
+          const result = await disputeService.getPayment(id);
+          return reply.send(formatSuccess(result));
+        } catch (error) {
+          if (error instanceof UnauthorizedError) {
+            return reply.code(403).send(formatError(error.message, error.code));
+          } else if (error instanceof AppError) {
+            return reply.code(error.statusCode).send(formatError(error.message, error.code));
+          } else {
+            throw error;
+          }
+        }
+      }
+    );
+  };
+
+  registerDisputeRoutes('/api/admin');
+  registerDisputeRoutes('/api/v1/admin');
 };
