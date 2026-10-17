@@ -36,6 +36,7 @@ model User {
   referralCode        ReferralCode?
   referrals           Referral[]            @relation("RefereeUser")
   referralCommissions ReferralCommission[]  @relation("ReferrerUser")
+  scheduledDeletions  ScheduledAccountDeletion[]
 }
 
 model TwoFactorAuth {
@@ -1197,4 +1198,42 @@ model ModerationAction {
   @@index([targetType, targetId, createdAt], map: "idx_moderationAction_target_createdAt")
   @@index([reportId, createdAt], map: "idx_moderationAction_report_createdAt")
   @@index([action, createdAt], map: "idx_moderationAction_action_createdAt")
+}
+
+// ─── GDPR account deletion (#220) ────────────────────────────────────────────
+
+enum ScheduledDeletionStatus {
+  pending
+  cancelled
+  completed
+}
+
+// A password-confirmed account deletion request. The deletion itself is not
+// immediate: it is queued (BullMQ delayed job, keyed by `id`) to run
+// `GDPR_DELETION_GRACE_DAYS` (30) days after `requestedAt`, and can be
+// cancelled any time before `scheduledFor` via the link in the confirmation
+// email (`cancellationToken`).
+model ScheduledAccountDeletion {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status ScheduledDeletionStatus @default(pending)
+
+  requestedAt  DateTime
+  scheduledFor DateTime
+
+  // Opaque token embedded in the cancellation link sent by email. Hashed at
+  // rest (same pattern as password reset tokens) so a leaked database row
+  // cannot be used to cancel someone else's deletion.
+  cancellationTokenHash String @unique
+
+  cancelledAt DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([status, scheduledFor])
 }

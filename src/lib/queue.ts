@@ -81,6 +81,10 @@ export const QUEUE_NAMES = {
   exports: 'exports',
   deadLetter: 'dead-letter',
   emailNotifications: 'email-notifications',
+  // #220 — delayed job that executes a GDPR account deletion after its grace
+  // period; jobId is the ScheduledAccountDeletion row id so it can be removed
+  // (cancelled) by id before it fires.
+  accountDeletion: 'account-deletion',
 } as const;
 
 function createQueue(name: string, connection: ConnectionOptions | RedisClient): Queue {
@@ -101,6 +105,7 @@ export const imageProcessingQueue = createQueue(QUEUE_NAMES.imageProcessing, bul
 export const analyticsQueue = createQueue(QUEUE_NAMES.analytics, bullConnection);
 export const exportsQueue = createQueue(QUEUE_NAMES.exports, bullConnection);
 export const deadLetterQueue = createQueue(QUEUE_NAMES.deadLetter, bullConnection);
+export const accountDeletionQueue = createQueue(QUEUE_NAMES.accountDeletion, bullConnection);
 
 export const allQueues = [
   stellarConfirmationQueue,
@@ -110,6 +115,7 @@ export const allQueues = [
   analyticsQueue,
   exportsQueue,
   deadLetterQueue,
+  accountDeletionQueue,
 ];
 
 // ── Email notification queue (dedicated connection) ─────────────────────────
@@ -143,6 +149,7 @@ export const emailEvents = attachEvents(QUEUE_NAMES.email, bullConnection);
 export const imageProcessingEvents = attachEvents(QUEUE_NAMES.imageProcessing, bullConnection);
 export const analyticsEvents = attachEvents(QUEUE_NAMES.analytics, bullConnection);
 export const exportsEvents = attachEvents(QUEUE_NAMES.exports, bullConnection);
+export const accountDeletionEvents = attachEvents(QUEUE_NAMES.accountDeletion, bullConnection);
 export const emailNotificationEvents = attachEvents(
   QUEUE_NAMES.emailNotifications,
   emailNotificationEventsRedis
@@ -214,6 +221,7 @@ export async function closeQueues(): Promise<void> {
     exportsQueue,
     deadLetterQueue,
     emailNotificationQueue,
+    accountDeletionQueue,
   ];
   const events = [
     stellarConfirmationEvents,
@@ -223,6 +231,7 @@ export async function closeQueues(): Promise<void> {
     analyticsEvents,
     exportsEvents,
     emailNotificationEvents,
+    accountDeletionEvents,
   ];
 
   await Promise.allSettled(queues.map((q) => q.close()));
