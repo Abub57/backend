@@ -2,6 +2,7 @@ import { emailNotificationQueue } from '../../lib/queue';
 import { config } from '../../config/env';
 import { isFeatureEnabled } from '../../config/features';
 import { logger } from '../../utils/logger';
+import { withJobTracePayload } from '../../lib/requestContext';
 
 export type EmailTemplate = 'verification' | 'password-reset' | 'creator-verification' | 'account-locked' | 'notification';
 
@@ -21,19 +22,27 @@ export async function enqueueEmail(notification: EmailNotification): Promise<str
     return '';
   }
 
-  const job = await emailNotificationQueue.add('send', notification, {
-    attempts: 5,
-    backoff: { type: 'exponential', delay: 1000 },
-    removeOnComplete: { age: 7 * 24 * 60 * 60, count: 10000 },
-    removeOnFail: { age: 30 * 24 * 60 * 60 },
-  });
+  const job = await emailNotificationQueue.add(
+    'send',
+    withJobTracePayload(notification as unknown as Record<string, unknown>, {
+      userId: notification.userId,
+    }),
+    {
+      attempts: 5,
+      backoff: { type: 'exponential', delay: 1000 },
+      removeOnComplete: { age: 7 * 24 * 60 * 60, count: 10000 },
+      removeOnFail: { age: 30 * 24 * 60 * 60 },
+    }
+  );
   return String(job.id);
 }
 
 export async function enqueueEmailBatch(notifications: EmailNotification[]): Promise<string[]> {
   const jobs = await emailNotificationQueue.addBulk(notifications.map((notification) => ({
     name: 'send',
-    data: notification,
+    data: withJobTracePayload(notification as unknown as Record<string, unknown>, {
+      userId: notification.userId,
+    }),
     opts: {
       attempts: 5,
       backoff: { type: 'exponential' as const, delay: 1000 },

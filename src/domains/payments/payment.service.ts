@@ -32,6 +32,7 @@ import { buildCdnUrl } from '../media/media.storage';
 import { TIP_VISIBLE_STATE } from '../moderation/moderation.types';
 import { TipFilterInput, buildTipWhere, describeTipFilters } from './tip-filters';
 import { invalidateCaches, tipCacheKeys } from '../../lib/cache/invalidation';
+import { withJobTracePayload } from '../../lib/requestContext';
 /**
 
  * Columns required to build a TipResponse.
@@ -1212,10 +1213,14 @@ export class PaymentService extends BaseService {
       const { stellarConfirmationQueue } = await import('../../lib/queue');
       await stellarConfirmationQueue.add(
         'confirm-transaction',
-        {
-          transactionId: tipId,
-          transactionHash: tip.transactionHash,
-        },
+        withJobTracePayload(
+          {
+            transactionId: tipId,
+            tipId,
+            transactionHash: tip.transactionHash,
+          },
+          { userId: tip.fromUserId }
+        ),
         {
           attempts: 60,
           backoff: { type: 'exponential', delay: 1000 },
