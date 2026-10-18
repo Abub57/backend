@@ -87,6 +87,16 @@ export const registerPaymentRoutes = (app: FastifyInstance, prisma: PrismaClient
    * Create a new tip (initial step before payment transaction)
    * Requires: authenticated user with verified wallet
    * Rate limited: 10 tips per hour
+   *
+   * Asynchronous (#221): the tip is created and returned immediately with
+   * `status: "pending"` and a `jobId` for the queued balance-verification
+   * job; the on-chain wallet balance check that used to block this request
+   * now happens afterwards, in the background, so Stellar network congestion
+   * can no longer time out tip creation. Poll
+   * `GET /api/v1/transactions/:id` for status updates (the tip moves to
+   * `failed` if the background check finds insufficient funds), and
+   * registered webhooks still fire `payment.completed` once a submitted
+   * transaction is confirmed.
    */
   app.post<{ Body: CreateTipInput }>(
     '/api/v1/transactions/tip',
@@ -108,6 +118,10 @@ export const registerPaymentRoutes = (app: FastifyInstance, prisma: PrismaClient
                   status: { type: 'string' },
                   createdAt: { type: 'string' },
                   media: tipMediaResponseSchema,
+                  // #221 — async creation: the balance-verification job id so
+                  // a client can correlate/poll it (though the primary polling
+                  // surface is GET /api/v1/transactions/:id for tip status).
+                  jobId: { type: 'string' },
                 },
               },
             },
