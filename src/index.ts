@@ -12,7 +12,10 @@ import {
   getPoolMetrics,
   getCircuitBreaker,
 } from './db';
-import { createInstrumentedPrismaClient, getPrismaPerformanceMonitor } from './db/prisma-performance';
+import {
+  createInstrumentedPrismaClient,
+  getPrismaPerformanceMonitor,
+} from './db/prisma-performance';
 import { getCircuitBreakerSnapshots as getExternalBreakerSnapshots } from './lib/circuit-breaker';
 import { registerAuthRoutes } from './domains/auth/auth.routes';
 import { registerTwoFactorRoutes } from './domains/auth/two-factor.routes';
@@ -21,8 +24,11 @@ import { registerPaymentRoutes } from './domains/payments/payment.routes';
 import { registerChargeRoutes } from './domains/payments/charge.routes';
 import { registerUserRoutes } from './domains/users/user.routes';
 import { registerCreatorPayoutRoutes } from './domains/creators/payout.routes';
+import { registerCreatorAnalyticsRoutes } from './domains/creators/creator-analytics.routes';
 import { registerTeamRoutes } from './domains/teams/team.routes';
 import { registerWebhookRoutes } from './domains/webhooks/webhook.routes';
+import { registerDeveloperKeyRoutes } from './domains/developers/api-key.routes';
+import { initApiKeyAuth } from './domains/developers/api-key-auth';
 import { registerIncomingWebhookRoutes } from './domains/webhooks/webhook-incoming.routes';
 import { registerAnalyticsRoutes } from './domains/analytics/analytics.routes';
 import { registerAdminRoutes } from './domains/admin/admin.routes';
@@ -55,7 +61,10 @@ import { registerGraphQL } from './graphql/plugin';
 import { createCreatorTierRuntime } from './domains/creators/tier.runtime';
 import { registerRequestLogging } from './plugins/requestLogging';
 import { resolveRequestId } from './lib/requestContext';
-import { startCacheInvalidationSubscriber, stopCacheInvalidationSubscriber } from './lib/cache/invalidation';
+import {
+  startCacheInvalidationSubscriber,
+  stopCacheInvalidationSubscriber,
+} from './lib/cache/invalidation';
 
 // Behind a reverse proxy, TRUST_PROXY makes request.ip the real client
 // address instead of the proxy's, so per-IP rate limits don't bucket every
@@ -113,7 +122,9 @@ registerWalletRoutes(app, prisma);
 registerPaymentRoutes(app, prisma);
 registerUserRoutes(app, prisma);
 registerCreatorPayoutRoutes(app, prisma);
+registerCreatorAnalyticsRoutes(app, prisma);
 registerWebhookRoutes(app, prisma);
+registerDeveloperKeyRoutes(app, prisma);
 registerIncomingWebhookRoutes(app, prisma);
 registerAnalyticsRoutes(app, prisma);
 registerNotificationRoutes(app, prisma);
@@ -266,6 +277,7 @@ const bootstrap = async (): Promise<void> => {
   await registerSecurityPlugins(app);
 
   await initTokenBlacklist(prisma);
+  initApiKeyAuth(prisma);
   await startCacheInvalidationSubscriber();
 
   // API versioning (#25): validates an optional API-Version header against

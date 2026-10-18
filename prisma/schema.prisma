@@ -36,6 +36,7 @@ model User {
   referralCode        ReferralCode?
   referrals           Referral[]            @relation("RefereeUser")
   referralCommissions ReferralCommission[]  @relation("ReferrerUser")
+  apiKeys             ApiKey[]
 }
 
 model TwoFactorAuth {
@@ -44,9 +45,13 @@ model TwoFactorAuth {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   secret      String
   backupCodes String[]
-  enabled     Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  // Set once the user has confirmed, by submitting one backup code back,
+  // that they actually saved the set issued at setup (issue #214).
+  // `enable()` refuses to turn 2FA on until this is true.
+  backupCodesConfirmed Boolean  @default(false)
+  enabled              Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }
 
 model TrustedDevice {
@@ -1197,4 +1202,59 @@ model ModerationAction {
   @@index([targetType, targetId, createdAt], map: "idx_moderationAction_target_createdAt")
   @@index([reportId, createdAt], map: "idx_moderationAction_report_createdAt")
   @@index([action, createdAt], map: "idx_moderationAction_action_createdAt")
+}
+
+// Developer-facing API keys for service-to-service calls (issue #213).
+// Distinct from the static, config-backed keys in service-auth.ts (#140):
+// these are per-integration, database-backed, and manageable by their owner
+// through the /api/developers/keys routes.
+model ApiKey {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name String
+
+  // Never store the raw key: only its SHA-256 digest (hex), which is what
+  // verification compares against with a timing-safe equality check. The
+  // raw value is returned to the caller exactly once, at creation.
+  keyHash String @unique
+
+  // Short, non-secret prefix of the raw key, stored alongside the hash so a
+  // key can be identified in logs/UI without ever re-deriving or exposing
+  // the secret itself.
+  keyPrefix String
+
+  // Named scopes this key is allowed to act under, e.g. "payments:read",
+  // "webhooks:write". An empty array grants no scopes (fails closed).
+  permissions String[]
+
+  revokedAt  DateTime?
+  expiresAt  DateTime?
+  lastUsedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  usageEvents ApiKeyUsageEvent[]
+
+  @@index([userId, revokedAt])
+}
+
+// Append-only usage log for API key authentication attempts (issue #213's
+// "API key usage is logged" acceptance criterion). Kept separate from
+// `ApiKey.lastUsedAt` (a cheap single-column summary) so a full audit trail
+// doesn't require scanning or growing the key row itself.
+model ApiKeyUsageEvent {
+  id       String @id @default(cuid())
+  apiKeyId String
+  apiKey   ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+
+  success   Boolean
+  method    String?
+  path      String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([apiKeyId, createdAt])
 }

@@ -36,6 +36,8 @@ const tipFilterOptions = (query: TipHistoryQueryInput) => ({
   status: query.status,
   minDate: query.minDate,
   maxDate: query.maxDate,
+  // IANA timezone for minDate/maxDate and response timestamps (issue #216).
+  timezone: query.timezone,
   minAmount: query.minAmount,
   maxAmount: query.maxAmount,
   query: query.query,
