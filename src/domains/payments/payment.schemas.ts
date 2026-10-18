@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { sanitizeString } from '../../middleware/validation';
+import { sanitizeText, stripHtml } from '../../utils/sanitization';
 import {
   ASSET_CODE_MAX_LENGTH,
   MAX_PAYMENT_AMOUNT,
@@ -43,6 +43,7 @@ export const MemoSchema = z
   .string()
   .trim()
   .min(1, 'Memo cannot be empty')
+  .transform((value) => stripHtml(value))
   .superRefine((value, ctx) => {
     const check = validateMemo(value);
     if (!check.valid) {
@@ -54,11 +55,11 @@ export const MemoSchema = z
   })
   .describe(`Stellar text memo, at most ${MEMO_MAX_LENGTH} bytes when encoded as UTF-8`);
 
-/** Text fields are sanitized (control chars/tags removed) before length checks. */
+/** Text fields are sanitized (HTML stripped) then truncated to maxLength. */
 const sanitizedText = (maxLength: number, label: string) =>
   z
     .string()
-    .transform((value) => sanitizeString(value, { collapseWhitespace: false }))
+    .transform((value) => sanitizeText(value, { maxLength }))
     .pipe(z.string().max(maxLength, `${label} must be ${maxLength} characters or less`));
 
 const sortBySchema = z
