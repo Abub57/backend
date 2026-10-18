@@ -1,3 +1,4 @@
+import { generateCsrfToken } from '../../middleware/csrf';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { BaseService } from '../../services/base.service';
 import { LoginRequest, PasswordResetConfirmRequestSchema, RegisterRequest } from './auth.types';
@@ -284,6 +285,7 @@ export class AuthService extends BaseService {
     user: { id: string; email: string; name: string | null; role: string };
     accessToken: string;
     refreshToken: string;
+    csrfToken: string;
   }> {
     return this.executeWithLogging('user.login', async () => {
       const user = await this.prisma.user.findUnique({
@@ -316,6 +318,7 @@ export class AuthService extends BaseService {
       await (this.prisma as any).authAttempt?.create({ data: { email: data.email, ipAddress: metadata.ipAddress ?? 'unknown', action: 'login', success: true } });
 
       const jti = randomUUID();
+      const csrfToken = generateCsrfToken();
       
       const accessToken = generateAccessToken({
         userId: user.id,
@@ -323,6 +326,7 @@ export class AuthService extends BaseService {
         role: user.role,
         jti,
         authVersion: user.authVersion,
+        csrf: csrfToken,
       });
 
       const refreshToken = generateRefreshToken(user.id, jti, user.authVersion);
@@ -338,6 +342,7 @@ export class AuthService extends BaseService {
         user: { id: user.id, email: user.email, name: user.name, role: user.role },
         accessToken,
         refreshToken,
+        csrfToken,
       };
     });
   }
@@ -345,6 +350,7 @@ export class AuthService extends BaseService {
   async refreshAccessToken(refreshToken: string): Promise<{
     accessToken: string;
     refreshToken: string;
+    csrfToken: string;
   }> {
     return this.executeWithLogging('user.refreshToken', async () => {
       const { verifyRefreshToken } = await import('../../utils/jwt');
@@ -377,12 +383,14 @@ export class AuthService extends BaseService {
 
       // Issue new tokens with new JTI
       const newJti = randomUUID();
+      const csrfToken = generateCsrfToken();
       const newAccessToken = generateAccessToken({
         userId: user.id,
         email: user.email,
         role: user.role,
         jti: newJti,
         authVersion: user.authVersion,
+        csrf: csrfToken,
       });
 
       const newRefreshToken = generateRefreshToken(user.id, newJti, user.authVersion);
@@ -396,6 +404,7 @@ export class AuthService extends BaseService {
       return {
         accessToken: newAccessToken,
         refreshToken: newRefreshToken,
+        csrfToken,
       };
     });
   }

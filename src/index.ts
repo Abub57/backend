@@ -49,6 +49,7 @@ import { logger } from './utils/logger';
 import { registerRateLimiting } from './plugins/rateLimit';
 import { registerResponseOptimization } from './plugins/responseOptimization';
 import { swaggerConfig } from './config/swagger';
+import { registerCsrfProtection } from './middleware/csrf';
 import { registerSecurityPlugins } from './plugins/security';
 import { registerApiVersioning } from './plugins/apiVersion';
 import { globalErrorHandler, notFoundHandler } from './middleware/error-handler';
@@ -106,6 +107,9 @@ applyJsonSerializer(app);
 app.register(cookie, {
   secret: config.JWT_SECRET,
 });
+
+// CSRF protection (#191) must be added before routes so it covers them all.
+registerCsrfProtection(app);
 
 // Register routes
 registerAuthRoutes(app, prisma);
