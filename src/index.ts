@@ -52,6 +52,7 @@ import { registerResponseOptimization } from './plugins/responseOptimization';
 import { swaggerConfig } from './config/swagger';
 import { registerSecurityPlugins } from './plugins/security';
 import { registerApiVersioning } from './plugins/apiVersion';
+import { registerRequestTimeout } from './middleware/timeout';
 import { globalErrorHandler, notFoundHandler } from './middleware/error-handler';
 import { registerGraphQL } from './graphql/plugin';
 import { createCreatorTierRuntime } from './domains/creators/tier.runtime';
@@ -268,6 +269,11 @@ process.on('SIGINT', () => {
 
 const bootstrap = async (): Promise<void> => {
   await registerSecurityPlugins(app);
+
+  // Request timeout (#206): registered before any route-level hooks or
+  // handlers so the deadline covers the full request lifecycle, not just
+  // whatever runs after it.
+  registerRequestTimeout(app);
 
   await initTokenBlacklist(prisma);
   await startCacheInvalidationSubscriber();
