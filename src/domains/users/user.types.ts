@@ -46,10 +46,20 @@ export const UpdateAvatarRequestSchema = z.object({
   image: z.string().min(1, 'Avatar image is required'),
 });
 
+export const RequestEmailChangeSchema = z.object({
+  newEmail: z.string().trim().email('Invalid email format').toLowerCase(),
+});
+
+export const VerifyEmailChangeSchema = z.object({
+  token: z.string().trim().min(1, 'Verification token is required'),
+});
+
 export type UpdateUserProfileRequest = z.infer<typeof UpdateUserProfileSchema>;
 export type UpdateUserSettingsRequest = z.infer<typeof UpdateUserSettingsSchema>;
 export type ChangePasswordRequest = z.infer<typeof ChangePasswordSchema>;
 export type UpdateAvatarRequest = z.infer<typeof UpdateAvatarRequestSchema>;
+export type RequestEmailChangeRequest = z.infer<typeof RequestEmailChangeSchema>;
+export type VerifyEmailChangeRequest = z.infer<typeof VerifyEmailChangeSchema>;
 
 export interface UserProfileResponse {
   id: string;

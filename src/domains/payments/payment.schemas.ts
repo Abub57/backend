@@ -11,6 +11,48 @@ import {
 import { zodToJsonSchema } from '../../utils/zod-to-json-schema';
 import { TIP_TEXT_SEARCH_MAX_LENGTH } from './tip-filters';
 import { MAX_MEDIA_PER_TIP } from '../media/media.types';
+import { prisma } from '../../lib/prisma';
+import { ValidationError } from '../../utils/errors';
+
+/**
+ * Validates that an asset code and optional issuer exist in configured prisma.stellarAsset (#185).
+ * Rejects with a 400 ValidationError if the asset is unsupported or not whitelisted.
+ */
+export async function validateWhitelistedAsset(
+  code: string,
+  issuer?: string | null,
+  client: { stellarAsset: { findFirst: (args: any) => Promise<any> } } = prisma
+): Promise<any> {
+  const normalizedCode = code?.trim();
+  if (!isValidAssetCode(normalizedCode)) {
+    throw new ValidationError(`Invalid asset code: ${code}`);
+  }
+
+  const normalizedIssuer = issuer?.trim() || null;
+  if (normalizedIssuer && !isValidStellarPublicKey(normalizedIssuer)) {
+    throw new ValidationError(`Invalid asset issuer public key: ${issuer}`);
+  }
+
+  const asset = await client.stellarAsset.findFirst({
+    where: {
+      code: normalizedCode,
+      ...(normalizedIssuer ? { issuer: normalizedIssuer } : { issuer: null }),
+      enabled: true,
+    },
+  });
+
+  if (!asset) {
+    throw new ValidationError(
+      normalizedIssuer
+        ? `Asset '${normalizedCode}' with issuer '${normalizedIssuer}' is not whitelisted or supported`
+        : `Asset '${normalizedCode}' is not whitelisted or supported`
+    );
+  }
+
+  return asset;
+}
+
+export const validatePaymentAsset = validateWhitelistedAsset;
 
 /**
  * Request schemas for the payments domain.
@@ -118,6 +160,13 @@ export const CreateTipSchema = z.object({
     .max(MAX_PAYMENT_AMOUNT, `Amount must not exceed ${MAX_PAYMENT_AMOUNT}`),
   message: sanitizedText(500, 'Message').optional(),
   currency: z.enum(['USD', 'XLM', 'USDC']).default('USD'),
+  assetCode: z
+    .string()
+    .trim()
+    .max(ASSET_CODE_MAX_LENGTH)
+    .refine(isValidAssetCode, 'Invalid asset code')
+    .optional(),
+  assetIssuer: StellarPublicKeySchema.optional(),
   assetId: z.string().trim().min(1).max(100).optional(),
   idempotencyKey: z.string().trim().min(8, 'Idempotency key is too short').max(255).optional(),
   /**

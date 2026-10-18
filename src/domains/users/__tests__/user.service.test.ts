@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../lib/cache/cache-aside', () => ({
+vi.mock('../../../lib/cache/cache-aside', () => ({
   CacheType: { USER: 'user' },
   createCacheKey: (type: string, id: string) => `${type}:${id}`,
   getOrFetch: async ({ fetchFn }: { fetchFn: () => Promise<unknown> }) => fetchFn(),
@@ -9,15 +9,15 @@ vi.mock('../../lib/cache/cache-aside', () => ({
   invalidate: async () => undefined,
 }));
 
-vi.mock('../../utils/token-blacklist', () => ({
+vi.mock('../../../utils/token-blacklist', () => ({
   blacklistToken: vi.fn(async () => undefined),
 }));
 
 import { UserService } from '../user.service';
 import { AVATAR_MAX_BYTES, decodeAvatarDataUrl } from '../avatar.storage';
-import { hashPassword } from '../../utils/password';
-import { ValidationError } from '../../utils/errors';
-import { blacklistToken } from '../../utils/token-blacklist';
+import { hashPassword } from '../../../utils/password';
+import { ValidationError } from '../../../utils/errors';
+import { blacklistToken } from '../../../utils/token-blacklist';
 
 /** Minimal in-memory Prisma stand-in covering the models UserService touches. */
 class FakePrisma {
