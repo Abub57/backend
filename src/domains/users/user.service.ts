@@ -11,6 +11,7 @@ import {
   UserSettingsResponse,
   UserTransactionHistoryResponse,
   PaginatedTransactions,
+  parsePhone,
 } from './user.types';
 import { ValidationError, NotFoundError, ConflictError } from '../../utils/errors';
 import { getOrFetch, invalidate, update, createCacheKey, CacheType } from '../../lib/cache/cache-aside';
@@ -31,6 +32,7 @@ const USER_PROFILE_SELECT = {
   email: true,
   name: true,
   bio: true,
+  phoneNumber: true,
   avatar: true,
   role: true,
   verified: true,
@@ -44,7 +46,7 @@ const DEFAULT_SETTINGS = {
 } as const;
 
 /** Fields whose changes are flagged as security sensitive in the audit trail. */
-const SENSITIVE_AUDIT_FIELDS = new Set(['password', 'email', 'avatar']);
+const SENSITIVE_AUDIT_FIELDS = new Set(['password', 'email', 'phoneNumber', 'avatar']);
 
 /** Request metadata captured alongside an audited change. */
 export interface ProfileRequestContext {
@@ -104,11 +106,24 @@ export class UserService extends BaseService {
 
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
-        select: { id: true, name: true, bio: true },
+        select: { id: true, name: true, bio: true, phoneNumber: true },
       });
 
       if (!user) {
         throw new NotFoundError('User');
+      }
+
+      let phoneValue: string | null | undefined;
+      if (data.phoneNumber !== undefined) {
+        if (data.phoneNumber === null) {
+          phoneValue = null;
+        } else {
+          const normalized = parsePhone(String(data.phoneNumber));
+          if (normalized === null) {
+            throw new ValidationError('Invalid phone number format');
+          }
+          phoneValue = normalized;
+        }
       }
 
       const changes: ProfileChangeInput[] = [];
@@ -118,12 +133,20 @@ export class UserService extends BaseService {
       if (data.bio !== undefined && data.bio !== user.bio) {
         changes.push({ field: 'bio', oldValue: user.bio, newValue: data.bio });
       }
+      if (phoneValue !== undefined && phoneValue !== user.phoneNumber) {
+        changes.push({
+          field: 'phoneNumber',
+          oldValue: user.phoneNumber,
+          newValue: phoneValue,
+        });
+      }
 
       const updatedUser = await this.prisma.user.update({
         where: { id: userId },
         data: {
           ...(data.name !== undefined ? { name: data.name } : {}),
           ...(data.bio !== undefined ? { bio: data.bio } : {}),
+          ...(phoneValue !== undefined ? { phoneNumber: phoneValue } : {}),
         },
         select: USER_PROFILE_SELECT,
       });
@@ -599,6 +622,7 @@ export class UserService extends BaseService {
     email: string;
     name: string | null;
     bio: string | null;
+    phoneNumber: string | null;
     avatar: string | null;
     role: string;
     verified: boolean;
@@ -610,6 +634,7 @@ export class UserService extends BaseService {
       email: user.email,
       name: user.name,
       bio: user.bio,
+      phoneNumber: user.phoneNumber,
       avatar: user.avatar,
       role: user.role,
       verified: user.verified,

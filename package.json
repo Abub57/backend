@@ -32,6 +32,7 @@
     "verify-backup": "tsx scripts/verify-backup.ts"
   },
   "dependencies": {
+    "libphonenumber-js": "^1.11.0",
     "@fastify/compress": "^8.0.0",
     "@fastify/cookie": "^9.3.1",
     "@fastify/cors": "^9.0.1",
