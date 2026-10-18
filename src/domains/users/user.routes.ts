@@ -103,20 +103,25 @@ export const registerUserRoutes = (app: FastifyInstance, prisma: PrismaClient): 
 
   const updateProfileOptions = {
     preHandler: authMiddleware,
-    schema: {
-      body: {
-        type: 'object',
-        properties: {
-          name: { type: 'string', description: 'Display name' },
-          bio: { type: 'string', description: 'User bio' },
+      schema: {
+        body: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Display name' },
+            bio: { type: 'string', description: 'User bio' },
+            phoneNumber: {
+              type: 'string',
+              description:
+                'Phone number in any common format; stored normalized to E.164 (e.g. +14155552671)',
+            },
+          },
+        },
+        response: {
+          200: { description: 'Profile updated' },
+          400: { description: 'Validation error' },
+          401: { description: 'Unauthorized' },
         },
       },
-      response: {
-        200: { description: 'Profile updated' },
-        400: { description: 'Validation error' },
-        401: { description: 'Unauthorized' },
-      },
-    },
   };
 
   app.patch('/api/v1/users/profile', updateProfileOptions, updateProfileHandler);

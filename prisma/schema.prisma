@@ -13,6 +13,7 @@ model User {
   password                String
   name                    String?
   bio                     String?
+  phoneNumber             String?
   avatar                  String?
   role                    String    @default("fan")
   verified                Boolean   @default(false)
