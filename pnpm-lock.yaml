@@ -50,6 +50,9 @@ importers:
       bullmq:
         specifier: ^5.8.0
         version: 5.81.5(redis@4.7.1)
+      cron-parser:
+        specifier: 4.9.0
+        version: 4.9.0
       dotenv:
         specifier: ^16.4.5
         version: 16.6.1

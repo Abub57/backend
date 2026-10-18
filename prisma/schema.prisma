@@ -154,6 +154,7 @@ model Creator {
   freezes              AccountFreeze[]
   payments             Payment[]
   payouts              Payout[]
+  scheduledPayments    ScheduledPayment[]
   verificationRequests CreatorVerificationRequest[]
   verificationEvents   CreatorVerificationEvent[]
 
@@ -1236,4 +1237,44 @@ model ScheduledAccountDeletion {
 
   @@index([userId, status])
   @@index([status, scheduledFor])
+}
+
+// ─── Scheduled payouts (#222) ────────────────────────────────────────────────
+
+enum ScheduledPaymentStatus {
+  active
+  paused
+  cancelled
+}
+
+// A recurring payout a creator has configured for themselves (daily, weekly,
+// monthly, or a custom cron expression). The actual recurrence is driven by a
+// BullMQ repeatable job keyed by this row's id (see
+// src/domains/creators/scheduled-payout.service.ts and
+// src/lib/workers/scheduled-payout.worker.ts): this row is the durable record
+// of what was configured and its run history, not the scheduling mechanism
+// itself.
+model ScheduledPayment {
+  id        String  @id @default(cuid())
+  creatorId String
+  creator   Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  amount        Float
+  walletAddress String?
+
+  // Standard 5-field cron expression (minute hour day-of-month month
+  // day-of-week), e.g. "0 0 * * *" for daily at midnight.
+  cronExpression String
+
+  status ScheduledPaymentStatus @default(active)
+
+  lastRunAt    DateTime?
+  lastPayoutId String?
+  lastRunError String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([creatorId, status])
+  @@index([status])
 }

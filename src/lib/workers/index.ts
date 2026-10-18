@@ -12,6 +12,7 @@ import { createStellarConfirmationWorker } from './stellar-confirmation.worker';
 import { createWebhookDispatchWorker } from './webhook-dispatch.worker';
 import { createAccountDeletionWorker } from './account-deletion.worker';
 import { createBalanceVerificationWorker } from './balance-verification.worker';
+import { createScheduledPayoutWorker } from './scheduled-payout.worker';
 
 /**
  * Registers the recurring jobs workers rely on. Idempotent: repeatable jobs
@@ -39,6 +40,7 @@ export async function startWorkers(prisma?: PrismaClient) {
     createExportsWorker(),
     createAccountDeletionWorker(prisma),
     createBalanceVerificationWorker(prisma),
+    createScheduledPayoutWorker(prisma),
   ];
 
   await registerScheduledJobs();

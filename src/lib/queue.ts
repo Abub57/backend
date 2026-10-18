@@ -90,6 +90,10 @@ export const QUEUE_NAMES = {
   // out the tip creation request); transitions the tip to FAILED on
   // insufficient balance or a persistent balance-check failure.
   balanceVerification: 'balance-verification',
+  // #222 — repeatable (cron) jobs that trigger a creator's scheduled payout.
+  // Each ScheduledPayment row's recurring job uses that row's id as the
+  // repeatable job's jobId, so pause/resume/cancel can target it directly.
+  scheduledPayout: 'scheduled-payout',
 } as const;
 
 function createQueue(name: string, connection: ConnectionOptions | RedisClient): Queue {
@@ -112,6 +116,7 @@ export const exportsQueue = createQueue(QUEUE_NAMES.exports, bullConnection);
 export const deadLetterQueue = createQueue(QUEUE_NAMES.deadLetter, bullConnection);
 export const accountDeletionQueue = createQueue(QUEUE_NAMES.accountDeletion, bullConnection);
 export const balanceVerificationQueue = createQueue(QUEUE_NAMES.balanceVerification, bullConnection);
+export const scheduledPayoutQueue = createQueue(QUEUE_NAMES.scheduledPayout, bullConnection);
 
 export const allQueues = [
   stellarConfirmationQueue,
@@ -123,6 +128,7 @@ export const allQueues = [
   deadLetterQueue,
   accountDeletionQueue,
   balanceVerificationQueue,
+  scheduledPayoutQueue,
 ];
 
 // ── Email notification queue (dedicated connection) ─────────────────────────
@@ -161,6 +167,7 @@ export const balanceVerificationEvents = attachEvents(
   QUEUE_NAMES.balanceVerification,
   bullConnection
 );
+export const scheduledPayoutEvents = attachEvents(QUEUE_NAMES.scheduledPayout, bullConnection);
 export const emailNotificationEvents = attachEvents(
   QUEUE_NAMES.emailNotifications,
   emailNotificationEventsRedis
@@ -234,6 +241,7 @@ export async function closeQueues(): Promise<void> {
     emailNotificationQueue,
     accountDeletionQueue,
     balanceVerificationQueue,
+    scheduledPayoutQueue,
   ];
   const events = [
     stellarConfirmationEvents,
@@ -245,6 +253,7 @@ export async function closeQueues(): Promise<void> {
     emailNotificationEvents,
     accountDeletionEvents,
     balanceVerificationEvents,
+    scheduledPayoutEvents,
   ];
 
   await Promise.allSettled(queues.map((q) => q.close()));
