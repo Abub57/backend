@@ -32,6 +32,8 @@ export interface TipFilterInput {
   fromUserId?: string;
   /** Restrict to tips received by this creator. */
   creatorId?: string;
+  /** Restrict to tips in this asset (e.g. "USDC"). Issue #219. */
+  assetCode?: string;
 }
 
 /**
@@ -75,6 +77,10 @@ export function buildTipWhere(
     where.creatorId = filters.creatorId;
   }
 
+  if (filters.assetCode) {
+    where.assetCode = filters.assetCode;
+  }
+
   const query = filters.query?.trim();
   if (query) {
     // Message is the field users mean by "search"; id / transactionHash are
@@ -109,6 +115,7 @@ export function describeTipFilters(filters: TipFilterInput = {}): Record<string,
   if (filters.maxAmount !== undefined) applied.maxAmount = filters.maxAmount;
   if (filters.fromUserId) applied.fromUserId = filters.fromUserId;
   if (filters.creatorId) applied.creatorId = filters.creatorId;
+  if (filters.assetCode) applied.assetCode = filters.assetCode;
   const query = filters.query?.trim();
   if (query) applied.query = query;
   return applied;
