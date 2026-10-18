@@ -97,15 +97,36 @@ const boundedNumber = (min: number, max: number, label: string) =>
     .max(max, `${label} must not exceed ${max}`);
 
 /**
- * Accepts any parseable date-time and normalizes it to ISO-8601 so the service
- * layer (and the echoed-back filter metadata) sees one canonical format.
+ * Accepts any parseable date-time, trimmed but otherwise unmodified.
+ *
+ * Deliberately does *not* eagerly normalize via `new Date(value).toISOString()`
+ * (issue #216): that would resolve a bare, offset-less value against the
+ * server process's local timezone right here, before the `timezone` field is
+ * even available, and would erase whether the original value had an explicit
+ * UTC offset at all — information `resolveToUtc` (src/utils/timezone.ts)
+ * needs to decide whether `timezone` should apply. Resolution happens once,
+ * in `buildTipWhere`, with both `minDate`/`maxDate` and `timezone` in hand.
  */
 const isoDateSchema = (label: string) =>
   z
     .string()
     .trim()
-    .refine((value) => !Number.isNaN(Date.parse(value)), `${label} must be an ISO-8601 date-time`)
-    .transform((value) => new Date(value).toISOString());
+    .refine((value) => !Number.isNaN(Date.parse(value)), `${label} must be an ISO-8601 date-time`);
+
+/** `America/New_York`-style IANA timezone identifier (issue #216). */
+const timezoneSchema = z
+  .string()
+  .trim()
+  .min(1, 'timezone must not be empty')
+  .max(64, 'timezone is too long')
+  .refine((value) => {
+    try {
+      Intl.DateTimeFormat('en-US', { timeZone: value });
+      return true;
+    } catch {
+      return false;
+    }
+  }, 'timezone must be a valid IANA timezone identifier');
 
 /**
  * POST /api/v1/transactions/tip
@@ -235,6 +256,9 @@ export const TipHistoryQuerySchema = z
     // --- Filters (#56) -----------------------------------------------------
     minDate: isoDateSchema('minDate').optional(),
     maxDate: isoDateSchema('maxDate').optional(),
+    // IANA timezone used to interpret minDate/maxDate when they carry no
+    // explicit UTC offset, and to format response timestamps (issue #216).
+    timezone: timezoneSchema.optional(),
     minAmount: boundedNumber(0, MAX_PAYMENT_AMOUNT, 'minAmount').optional(),
     maxAmount: boundedNumber(0, MAX_PAYMENT_AMOUNT, 'maxAmount').optional(),
     query: sanitizedText(TIP_TEXT_SEARCH_MAX_LENGTH, 'Search query').optional(),

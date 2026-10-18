@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { resolveToUtc } from '../../utils/timezone';
 
 /**
  * Filtering / search support for tip listings (#56).
@@ -22,6 +23,13 @@ export interface TipFilterInput {
   minDate?: string;
   /** Inclusive upper bound on `createdAt` (ISO-8601). */
   maxDate?: string;
+  /**
+   * IANA timezone (e.g. "America/New_York") used to interpret `minDate`/
+   * `maxDate` when either lacks an explicit UTC offset, and to format
+   * `createdAt` in the response (issue #216). A `minDate`/`maxDate` that
+   * already carries an offset (including "Z") is unaffected by this.
+   */
+  timezone?: string;
   /** Inclusive lower bound on `amount`. */
   minAmount?: number;
   /** Inclusive upper bound on `amount`. */
@@ -57,8 +65,8 @@ export function buildTipWhere(
 
   if (filters.minDate || filters.maxDate) {
     const createdAt: { gte?: Date; lte?: Date } = {};
-    if (filters.minDate) createdAt.gte = new Date(filters.minDate);
-    if (filters.maxDate) createdAt.lte = new Date(filters.maxDate);
+    if (filters.minDate) createdAt.gte = resolveToUtc(filters.minDate, filters.timezone);
+    if (filters.maxDate) createdAt.lte = resolveToUtc(filters.maxDate, filters.timezone);
     where.createdAt = createdAt;
   }
 
@@ -111,6 +119,7 @@ export function describeTipFilters(filters: TipFilterInput = {}): Record<string,
   if (filters.status) applied.status = filters.status;
   if (filters.minDate) applied.minDate = filters.minDate;
   if (filters.maxDate) applied.maxDate = filters.maxDate;
+  if (filters.timezone) applied.timezone = filters.timezone;
   if (filters.minAmount !== undefined) applied.minAmount = filters.minAmount;
   if (filters.maxAmount !== undefined) applied.maxAmount = filters.maxAmount;
   if (filters.fromUserId) applied.fromUserId = filters.fromUserId;

@@ -45,9 +45,13 @@ model TwoFactorAuth {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   secret      String
   backupCodes String[]
-  enabled     Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  // Set once the user has confirmed, by submitting one backup code back,
+  // that they actually saved the set issued at setup (issue #214).
+  // `enable()` refuses to turn 2FA on until this is true.
+  backupCodesConfirmed Boolean  @default(false)
+  enabled              Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }
 
 model TrustedDevice {

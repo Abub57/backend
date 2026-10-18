@@ -31,6 +31,7 @@ import { MAX_MEDIA_PER_TIP, type MediaView } from '../media/media.types';
 import { buildCdnUrl } from '../media/media.storage';
 import { TIP_VISIBLE_STATE } from '../moderation/moderation.types';
 import { TipFilterInput, buildTipWhere, describeTipFilters } from './tip-filters';
+import { formatInTimezone } from '../../utils/timezone';
 import { invalidateCaches, tipCacheKeys } from '../../lib/cache/invalidation';
 import { withJobTracePayload } from '../../lib/requestContext';
 /**
@@ -493,7 +494,7 @@ export class PaymentService extends BaseService {
       const totalPages = Math.ceil(total / safePageSize);
 
       return {
-        tips: tips.map((tip) => this.formatTipResponse(tip)),
+        tips: tips.map((tip) => this.formatTipResponse(tip, options.timezone)),
         total,
         page: safePage,
         pageSize: safePageSize,
@@ -548,8 +549,8 @@ export class PaymentService extends BaseService {
 
       return {
         ...result,
-        items: result.items.map((tip) => this.formatTipResponse(tip)),
-        data: result.data.map((tip) => this.formatTipResponse(tip)),
+        items: result.items.map((tip) => this.formatTipResponse(tip, params.timezone)),
+        data: result.data.map((tip) => this.formatTipResponse(tip, params.timezone)),
         filters: describeTipFilters(params),
       };
     });
@@ -608,7 +609,7 @@ export class PaymentService extends BaseService {
       const totalPages = Math.ceil(total / safePageSize);
 
       return {
-        tips: tips.map((tip) => this.formatTipResponse(tip)),
+        tips: tips.map((tip) => this.formatTipResponse(tip, options.timezone)),
         total,
         page: safePage,
         pageSize: safePageSize,
@@ -655,8 +656,8 @@ export class PaymentService extends BaseService {
 
       return {
         ...result,
-        items: result.items.map((tip) => this.formatTipResponse(tip)),
-        data: result.data.map((tip) => this.formatTipResponse(tip)),
+        items: result.items.map((tip) => this.formatTipResponse(tip, params.timezone)),
+        data: result.data.map((tip) => this.formatTipResponse(tip, params.timezone)),
         filters: describeTipFilters(params),
       };
     });
@@ -719,7 +720,7 @@ export class PaymentService extends BaseService {
       const totalPages = Math.ceil(total / safePageSize);
 
       return {
-        tips: tips.map((tip) => this.formatTipResponse(tip)),
+        tips: tips.map((tip) => this.formatTipResponse(tip, options.timezone)),
         total,
         page: safePage,
         pageSize: safePageSize,
@@ -1376,21 +1377,24 @@ export class PaymentService extends BaseService {
   /**
    * Format database tip record to response DTO
    */
-  private formatTipResponse(tip: {
-    id: string;
-    fromUserId: string;
-    creatorId: string;
-    amount: number;
-    message: string | null;
-    status: string;
-    transactionHash?: string | null;
-    createdAt: Date;
-    updatedAt: Date;
-    media?: any[];
-    assetCode?: string | null;
-    assetIssuer?: string | null;
-    assetDecimals?: number | null;
-  }): TipResponse {
+  private formatTipResponse(
+    tip: {
+      id: string;
+      fromUserId: string;
+      creatorId: string;
+      amount: number;
+      message: string | null;
+      status: string;
+      transactionHash?: string | null;
+      createdAt: Date;
+      updatedAt: Date;
+      media?: any[];
+      assetCode?: string | null;
+      assetIssuer?: string | null;
+      assetDecimals?: number | null;
+    },
+    timezone?: string
+  ): TipResponse {
     return {
       id: tip.id,
       fromUserId: tip.fromUserId,
@@ -1402,8 +1406,11 @@ export class PaymentService extends BaseService {
       media: Array.isArray(tip.media)
         ? tip.media.map((row: any) => this.formatAttachedMedia(row))
         : [],
-      createdAt: tip.createdAt.toISOString(),
-      updatedAt: tip.updatedAt.toISOString(),
+      // Formatted in the caller's requested timezone when listing/filtering
+      // by date range (issue #216); every other call site omits `timezone`
+      // and gets the previous plain-UTC ISO string, unchanged.
+      createdAt: formatInTimezone(tip.createdAt, timezone),
+      updatedAt: formatInTimezone(tip.updatedAt, timezone),
       assetCode: tip.assetCode ?? 'USDC',
       assetIssuer: tip.assetIssuer ?? null,
       assetDecimals: tip.assetDecimals ?? 7,
