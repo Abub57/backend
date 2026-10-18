@@ -1,4 +1,4 @@
-import { PrismaClient, Tip } from '@prisma/client';
+import { Prisma, PrismaClient, Tip } from '@prisma/client';
 import { BaseService } from '../../services/base.service';
 import {
   CreateTipRequest,
@@ -22,6 +22,7 @@ import {
 import { buildPaymentTransaction, submitSignedTransaction } from '../../lib/stellar/transactions';
 import { getWalletBalance } from '../../lib/stellar/wallet';
 import { logger } from '../../utils/logger';
+import { transactionRetryCounter } from '../../lib/metrics';
 import { sanitizePageSize, sanitizePageNumber, parseSortParameters } from '../../utils/pagination';
 import { paginateWithCursor } from '../../db/pagination';
 import { WebhookService } from '../webhooks/webhook.service';
@@ -937,7 +938,7 @@ export class PaymentService extends BaseService {
             }
 
             return this.formatTipResponse({ ...tip, status: data.status });
-          });
+          }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
           break; // Exit retry loop on success
         } catch (error: unknown) {
           attempt++;
@@ -946,6 +947,10 @@ export class PaymentService extends BaseService {
             error instanceof OptimisticLockError || code === 'P2028' || code === 'P2034';
 
           if (retryable && attempt < maxRetries) {
+            transactionRetryCounter.inc({
+              operation: 'payment.updateTipStatus',
+              reason: error instanceof OptimisticLockError ? 'optimistic_lock' : code === 'P2034' ? 'serialization_failure' : 'deadlock',
+            });
             logger.warn(
               { tipId, attempt, maxRetries },
               'Concurrent tip update detected; retrying with fresh state'
