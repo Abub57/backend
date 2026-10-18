@@ -36,7 +36,7 @@ model User {
   referralCode        ReferralCode?
   referrals           Referral[]            @relation("RefereeUser")
   referralCommissions ReferralCommission[]  @relation("ReferrerUser")
-  apiKeys             ApiKey[]
+  scheduledDeletions  ScheduledAccountDeletion[]
 }
 
 model TwoFactorAuth {
@@ -158,6 +158,7 @@ model Creator {
   freezes              AccountFreeze[]
   payments             Payment[]
   payouts              Payout[]
+  scheduledPayments    ScheduledPayment[]
   verificationRequests CreatorVerificationRequest[]
   verificationEvents   CreatorVerificationEvent[]
 
@@ -1204,57 +1205,80 @@ model ModerationAction {
   @@index([action, createdAt], map: "idx_moderationAction_action_createdAt")
 }
 
-// Developer-facing API keys for service-to-service calls (issue #213).
-// Distinct from the static, config-backed keys in service-auth.ts (#140):
-// these are per-integration, database-backed, and manageable by their owner
-// through the /api/developers/keys routes.
-model ApiKey {
+// ─── GDPR account deletion (#220) ────────────────────────────────────────────
+
+enum ScheduledDeletionStatus {
+  pending
+  cancelled
+  completed
+}
+
+// A password-confirmed account deletion request. The deletion itself is not
+// immediate: it is queued (BullMQ delayed job, keyed by `id`) to run
+// `GDPR_DELETION_GRACE_DAYS` (30) days after `requestedAt`, and can be
+// cancelled any time before `scheduledFor` via the link in the confirmation
+// email (`cancellationToken`).
+model ScheduledAccountDeletion {
   id     String @id @default(cuid())
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  name String
+  status ScheduledDeletionStatus @default(pending)
 
-  // Never store the raw key: only its SHA-256 digest (hex), which is what
-  // verification compares against with a timing-safe equality check. The
-  // raw value is returned to the caller exactly once, at creation.
-  keyHash String @unique
+  requestedAt  DateTime
+  scheduledFor DateTime
 
-  // Short, non-secret prefix of the raw key, stored alongside the hash so a
-  // key can be identified in logs/UI without ever re-deriving or exposing
-  // the secret itself.
-  keyPrefix String
+  // Opaque token embedded in the cancellation link sent by email. Hashed at
+  // rest (same pattern as password reset tokens) so a leaked database row
+  // cannot be used to cancel someone else's deletion.
+  cancellationTokenHash String @unique
 
-  // Named scopes this key is allowed to act under, e.g. "payments:read",
-  // "webhooks:write". An empty array grants no scopes (fails closed).
-  permissions String[]
-
-  revokedAt  DateTime?
-  expiresAt  DateTime?
-  lastUsedAt DateTime?
+  cancelledAt DateTime?
+  completedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  usageEvents ApiKeyUsageEvent[]
-
-  @@index([userId, revokedAt])
+  @@index([userId, status])
+  @@index([status, scheduledFor])
 }
 
-// Append-only usage log for API key authentication attempts (issue #213's
-// "API key usage is logged" acceptance criterion). Kept separate from
-// `ApiKey.lastUsedAt` (a cheap single-column summary) so a full audit trail
-// doesn't require scanning or growing the key row itself.
-model ApiKeyUsageEvent {
-  id       String @id @default(cuid())
-  apiKeyId String
-  apiKey   ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+// ─── Scheduled payouts (#222) ────────────────────────────────────────────────
 
-  success   Boolean
-  method    String?
-  path      String?
-  ip        String?
+enum ScheduledPaymentStatus {
+  active
+  paused
+  cancelled
+}
+
+// A recurring payout a creator has configured for themselves (daily, weekly,
+// monthly, or a custom cron expression). The actual recurrence is driven by a
+// BullMQ repeatable job keyed by this row's id (see
+// src/domains/creators/scheduled-payout.service.ts and
+// src/lib/workers/scheduled-payout.worker.ts): this row is the durable record
+// of what was configured and its run history, not the scheduling mechanism
+// itself.
+model ScheduledPayment {
+  id        String  @id @default(cuid())
+  creatorId String
+  creator   Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  amount        Float
+  walletAddress String?
+
+  // Standard 5-field cron expression (minute hour day-of-month month
+  // day-of-week), e.g. "0 0 * * *" for daily at midnight.
+  cronExpression String
+
+  status ScheduledPaymentStatus @default(active)
+
+  lastRunAt    DateTime?
+  lastPayoutId String?
+  lastRunError String?
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@index([apiKeyId, createdAt])
+  @@index([creatorId, status])
+  @@index([status])
 }

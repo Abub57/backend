@@ -11,6 +11,7 @@ import {
 import { zodToJsonSchema } from '../../utils/zod-to-json-schema';
 import { TIP_TEXT_SEARCH_MAX_LENGTH } from './tip-filters';
 import { MAX_MEDIA_PER_TIP } from '../media/media.types';
+import { getMinimumTipAmount } from '../../config/payment-limits';
 
 /**
  * Request schemas for the payments domain.
@@ -129,27 +130,46 @@ const timezoneSchema = z
 
 /**
  * POST /api/v1/transactions/tip
+ *
+ * Amounts below the configured per-currency minimum are rejected (#218): a
+ * 0-value or dust-value tip can cost more in network/processing fees than the
+ * tip itself is worth. The check runs in a `superRefine` (rather than a plain
+ * `.min()` on `amount`) because the floor depends on `currency`, a sibling
+ * field, so both values must be read together. The error carries the minimum
+ * amount and currency so clients can surface exactly how much more is needed.
  */
-export const CreateTipSchema = z.object({
-  creatorId: z.string().trim().min(1, 'Creator ID is required').max(100, 'Creator ID is too long'),
-  amount: z
-    .number()
-    .finite('Amount must be a finite number')
-    .positive('Amount must be greater than 0')
-    .max(MAX_PAYMENT_AMOUNT, `Amount must not exceed ${MAX_PAYMENT_AMOUNT}`),
-  message: sanitizedText(500, 'Message').optional(),
-  currency: z.enum(['USD', 'XLM', 'USDC']).default('USD'),
-  assetId: z.string().trim().min(1).max(100).optional(),
-  idempotencyKey: z.string().trim().min(8, 'Idempotency key is too short').max(255).optional(),
-  /**
-   * Media uploaded beforehand and attached to this tip's message (#64). Every
-   * id must belong to the tipper and be in the `ready` state.
-   */
-  mediaIds: z
-    .array(z.string().trim().min(1, 'Media ID is required').max(100, 'Media ID is too long'))
-    .max(MAX_MEDIA_PER_TIP, `A tip can carry at most ${MAX_MEDIA_PER_TIP} media items`)
-    .optional(),
-});
+export const CreateTipSchema = z
+  .object({
+    creatorId: z.string().trim().min(1, 'Creator ID is required').max(100, 'Creator ID is too long'),
+    amount: z
+      .number()
+      .finite('Amount must be a finite number')
+      .positive('Amount must be greater than 0')
+      .max(MAX_PAYMENT_AMOUNT, `Amount must not exceed ${MAX_PAYMENT_AMOUNT}`),
+    message: sanitizedText(500, 'Message').optional(),
+    currency: z.enum(['USD', 'XLM', 'USDC']).default('USD'),
+    assetId: z.string().trim().min(1).max(100).optional(),
+    idempotencyKey: z.string().trim().min(8, 'Idempotency key is too short').max(255).optional(),
+    /**
+     * Media uploaded beforehand and attached to this tip's message (#64). Every
+     * id must belong to the tipper and be in the `ready` state.
+     */
+    mediaIds: z
+      .array(z.string().trim().min(1, 'Media ID is required').max(100, 'Media ID is too long'))
+      .max(MAX_MEDIA_PER_TIP, `A tip can carry at most ${MAX_MEDIA_PER_TIP} media items`)
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+    const minimum = getMinimumTipAmount(data.currency);
+    if (data.amount < minimum) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['amount'],
+        message: `Amount must be at least ${minimum} ${data.currency} (minimum tip amount)`,
+        params: { minimumAmount: minimum, currency: data.currency },
+      });
+    }
+  });
 
 /**
  * PATCH /api/v1/transactions/:id/status

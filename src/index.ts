@@ -23,8 +23,9 @@ import { registerWalletRoutes } from './domains/auth/wallet.routes';
 import { registerPaymentRoutes } from './domains/payments/payment.routes';
 import { registerChargeRoutes } from './domains/payments/charge.routes';
 import { registerUserRoutes } from './domains/users/user.routes';
+import { registerAuditLogRoutes } from './domains/users/audit.routes';
 import { registerCreatorPayoutRoutes } from './domains/creators/payout.routes';
-import { registerCreatorAnalyticsRoutes } from './domains/creators/creator-analytics.routes';
+import { registerScheduledPayoutRoutes } from './domains/creators/scheduled-payout.routes';
 import { registerTeamRoutes } from './domains/teams/team.routes';
 import { registerWebhookRoutes } from './domains/webhooks/webhook.routes';
 import { registerDeveloperKeyRoutes } from './domains/developers/api-key.routes';
@@ -56,6 +57,7 @@ import { registerResponseOptimization } from './plugins/responseOptimization';
 import { swaggerConfig } from './config/swagger';
 import { registerSecurityPlugins } from './plugins/security';
 import { registerApiVersioning } from './plugins/apiVersion';
+import { registerRequestTimeout } from './middleware/timeout';
 import { globalErrorHandler, notFoundHandler } from './middleware/error-handler';
 import { registerGraphQL } from './graphql/plugin';
 import { createCreatorTierRuntime } from './domains/creators/tier.runtime';
@@ -121,8 +123,9 @@ registerTwoFactorRoutes(app, prisma);
 registerWalletRoutes(app, prisma);
 registerPaymentRoutes(app, prisma);
 registerUserRoutes(app, prisma);
+registerAuditLogRoutes(app, prisma);
 registerCreatorPayoutRoutes(app, prisma);
-registerCreatorAnalyticsRoutes(app, prisma);
+registerScheduledPayoutRoutes(app, prisma);
 registerWebhookRoutes(app, prisma);
 registerDeveloperKeyRoutes(app, prisma);
 registerIncomingWebhookRoutes(app, prisma);
@@ -276,6 +279,11 @@ process.on('SIGINT', () => {
 const bootstrap = async (): Promise<void> => {
   await registerSecurityPlugins(app);
 
+  // Request timeout (#206): registered before any route-level hooks or
+  // handlers so the deadline covers the full request lifecycle, not just
+  // whatever runs after it.
+  registerRequestTimeout(app);
+
   await initTokenBlacklist(prisma);
   initApiKeyAuth(prisma);
   await startCacheInvalidationSubscriber();
@@ -293,6 +301,7 @@ const bootstrap = async (): Promise<void> => {
   registerChargeRoutes(app, prisma);
   registerUserRoutes(app, prisma);
   registerCreatorPayoutRoutes(app, prisma);
+  registerScheduledPayoutRoutes(app, prisma);
   registerTeamRoutes(app, prisma);
   registerGraphQL(app);
   registerAssetRoutes(app, prisma);
