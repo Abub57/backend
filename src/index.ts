@@ -25,7 +25,7 @@ import { registerChargeRoutes } from './domains/payments/charge.routes';
 import { registerUserRoutes } from './domains/users/user.routes';
 import { registerAuditLogRoutes } from './domains/users/audit.routes';
 import { registerCreatorPayoutRoutes } from './domains/creators/payout.routes';
-import { registerScheduledPayoutRoutes } from './domains/creators/scheduled-payout.routes';
+import { registerCreatorTierRoutes } from './domains/creators/tier.routes';
 import { registerTeamRoutes } from './domains/teams/team.routes';
 import { registerWebhookRoutes } from './domains/webhooks/webhook.routes';
 import { registerDeveloperKeyRoutes } from './domains/developers/api-key.routes';

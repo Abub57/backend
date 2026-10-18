@@ -34,6 +34,7 @@ import { TipFilterInput, buildTipWhere, describeTipFilters } from './tip-filters
 import { formatInTimezone } from '../../utils/timezone';
 import { invalidateCaches, tipCacheKeys } from '../../lib/cache/invalidation';
 import { withJobTracePayload } from '../../lib/requestContext';
+import { validateWhitelistedAsset } from './payment.schemas';
 /**
 
  * Columns required to build a TipResponse.
@@ -152,6 +153,10 @@ export class PaymentService extends BaseService {
 
       if (!creator.verified) {
         throw new ValidationError('Creator account must be verified to receive tips');
+      }
+
+      if (data.assetCode || data.assetIssuer) {
+        await validateWhitelistedAsset(data.assetCode || 'USDC', data.assetIssuer, this.prisma);
       }
 
       const requestedAsset = data.assetId
@@ -1068,6 +1073,9 @@ export class PaymentService extends BaseService {
           field: 'memo',
         });
       }
+
+      // Validate asset code and issuer against configured whitelisted assets (#185)
+      await validateWhitelistedAsset(assetCode || 'USDC', assetIssuer, this.prisma);
 
       const tip = await this.prisma.tip.findUnique({
         where: { id: tipId },

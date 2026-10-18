@@ -177,6 +177,7 @@ model Creator {
   @@index([isPublic, verified, totalEarnings(sort: Desc)], map: "idx_creator_public_verified_earnings")
   // Global top-earners ranking (no filters).
   @@index([totalEarnings(sort: Desc)], map: "idx_creator_totalEarnings")
+  @@unique([username], map: "uniq_creator_username")
 }
 
 model CreatorVerificationRequest {
